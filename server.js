@@ -256,6 +256,43 @@ app.post("/flattradePlaceOrder", async (req, res) => {
       .json({ message: "Error placing order", error: error.message });
   }
 });
+app.post("/flattradeModifyOrder", async (req, res) => {
+  const jKey = req.headers.authorization?.split(" ")[1];
+  const { norenordno, prc, qty, trgprc, uid } = req.body;
+
+  if (!jKey) {
+    return res.status(400).json({ message: "Token is missing. Please generate a token first." });
+  }
+
+  const jData = JSON.stringify({
+    norenordno,
+    prc,
+    qty,
+    trgprc,
+    uid
+  });
+
+  const payload = `jKey=${jKey}&jData=${jData}`;
+
+  try {
+    const response = await axios.post(
+      "https://piconnect.flattrade.in/PiConnectTP/ModifyOrder",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    console.error("Error modifying Flattrade order:", error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({ 
+      message: "Error modifying Flattrade order", 
+      error: error.response?.data || error.message 
+    });
+  }
+});
 // Broker Flattrade - Get Symbols
 app.get("/flattradeSymbols", (req, res) => {
   const { exchangeSymbol, masterSymbol } = req.query;
@@ -593,6 +630,44 @@ app.post("/shoonyaPlaceOrder", async (req, res) => {
       .json({ message: "Error placing order", error: error.message });
   }
 });
+app.post("/shoonyaModifyOrder", async (req, res) => {
+  const jKey = req.headers.authorization?.split(" ")[1];
+  const { norenordno, prc, qty, trgprc, uid } = req.body;
+
+  if (!jKey) {
+    return res.status(400).json({ message: "Token is missing. Please generate a token first." });
+  }
+
+  const jData = JSON.stringify({
+    exch,
+    norenordno,
+    prc,
+    qty,
+    trgprc,
+    uid
+  });
+
+  const payload = `jKey=${jKey}&jData=${jData}`;
+
+  try {
+    const response = await axios.post(
+      "https://api.shoonya.com/NorenWClient/ModifyOrder",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    console.error("Error modifying Shoonya order:", error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({ 
+      message: "Error modifying Shoonya order", 
+      error: error.response?.data || error.message 
+    });
+  }
+});
 // Broker Shoonya - Get Orders and Trades
 app.get("/shoonyaGetOrdersAndTrades", async (req, res) => {
   const jKey = req.query.SHOONYA_API_TOKEN;
@@ -852,7 +927,49 @@ app.post("/dhanPlaceOrder", async (req, res) => {
     res.status(500).json({ message: "Failed to place order" });
   }
 });
+app.put("/dhanModifyOrder/:orderId", async (req, res) => {
+  const dhanApiToken = req.headers.authorization?.split(" ")[1];
+  const orderId = req.params.orderId;
 
+  if (!dhanApiToken) {
+    return res.status(400).json({ message: "Dhan API token is missing." });
+  }
+
+  const {
+    dhanClientId,
+    quantity,
+    price,
+    triggerPrice
+  } = req.body;
+
+  const options = {
+    method: 'PUT',
+    url: `https://api.dhan.co/orders/${orderId}`,
+    headers: {
+      'access-token': dhanApiToken,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    data: {
+      dhanClientId,
+      orderId,
+      quantity,
+      price,
+      triggerPrice,
+    }
+  };
+
+  try {
+    const response = await axios(options);
+    res.json(response.data);
+  } catch (error) {
+    console.error("Failed to modify Dhan order:", error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({
+      message: "Failed to modify Dhan order",
+      error: error.response?.data || error.message
+    });
+  }
+});
 // Broker Dhan - Route to get orders
 app.get("/dhanGetOrders", async (req, res) => {
   const dhanApiToken = req.query.DHAN_API_TOKEN;
