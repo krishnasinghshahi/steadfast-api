@@ -258,16 +258,19 @@ app.post("/flattradePlaceOrder", async (req, res) => {
 });
 app.post("/flattradeModifyOrder", async (req, res) => {
   const jKey = req.headers.authorization?.split(" ")[1];
-  const { norenordno, prc, qty, trgprc, uid } = req.body;
+  const { exch, norenordno, prc, qty, tsym, ret, trgprc, uid } = req.body;
 
   if (!jKey) {
     return res.status(400).json({ message: "Token is missing. Please generate a token first." });
   }
 
   const jData = JSON.stringify({
+    exch,
     norenordno,
     prc,
     qty,
+    tsym,
+    ret,
     trgprc,
     uid
   });
@@ -632,7 +635,7 @@ app.post("/shoonyaPlaceOrder", async (req, res) => {
 });
 app.post("/shoonyaModifyOrder", async (req, res) => {
   const jKey = req.headers.authorization?.split(" ")[1];
-  const { norenordno, prc, qty, trgprc, uid } = req.body;
+  const { exch, norenordno, prc, qty, tsym, ret, trgprc, uid } = req.body;
 
   if (!jKey) {
     return res.status(400).json({ message: "Token is missing. Please generate a token first." });
@@ -643,9 +646,12 @@ app.post("/shoonyaModifyOrder", async (req, res) => {
     norenordno,
     prc,
     qty,
+    tsym,
+    ret,
     trgprc,
     uid
   });
+
 
   const payload = `jKey=${jKey}&jData=${jData}`;
 
