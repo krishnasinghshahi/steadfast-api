@@ -2,12 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const { createProxyMiddleware } = require("http-proxy-middleware");
 const axios = require("axios");
-const fs = require("fs");
-const csv = require("fast-csv");
-const unzipper = require("unzipper");
-const path = require("path");
 const bodyParser = require("body-parser");
-const { parse, isBefore } = require("date-fns"); // Add this line to import date-fns for date parsing and comparison
+require("dotenv").config();
 
 const app = express();
 
@@ -27,7 +23,7 @@ app.use(
 
 app.use(express.json());
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true })); // Add this line to parse URL-encoded data
+app.use(bodyParser.urlencoded({ extended: true })); 
 
 require("dotenv").config();
 
@@ -52,66 +48,25 @@ let storedCredentials = {
   dhan: {
     accessToken: "",
     clientId: "",
-    dhanExchangeSegment: "", // Initialize as empty
-    dhanSecurityId: "",      // Initialize as empty
+    dhanExchangeSegment: "",
+    dhanSecurityId: "",
   },
 };
-// Update the POST endpoint to store the credentials and security IDs
-app.post("/api/set-flattrade-credentials", (req, res) => {
-  console.log("Received POST request to set credentials and security IDs");
-  const { usersession, userid, defaultCallSecurityId, defaultPutSecurityId } =
-    req.body;
 
-  // Store the credentials and security IDs
-  storedCredentials = {
-    usersession,
-    userid,
-    defaultCallSecurityId,
-    defaultPutSecurityId,
-  };
+const setCredentials = (broker, credentials) => {
+  storedCredentials[broker] = credentials;
+  console.log(`Updated ${broker} credentials:`, storedCredentials[broker]);
+};
 
-  console.log("Updated credentials and security IDs:", storedCredentials);
-  res.json({ message: "Credentials and security IDs updated successfully" });
+app.post("/api/set-credentials", (req, res) => {
+  const { broker, credentials } = req.body;
+  setCredentials(broker, credentials);
+  res.json({ message: `${broker} credentials updated successfully` });
 });
-// Add a new POST endpoint to set Shoonya credentials
-app.post("/api/set-shoonya-credentials", (req, res) => {
-  console.log(
-    "Received POST request to set Shoonya credentials and security IDs"
-  );
-  const { usersession, userid, defaultCallSecurityId, defaultPutSecurityId } =
-    req.body;
 
-  // Store the Shoonya credentials and security IDs
-  storedCredentials.shoonya = {
-    usersession,
-    userid,
-    defaultCallSecurityId,
-    defaultPutSecurityId,
-  };
-
-  console.log(
-    "Updated Shoonya credentials and security IDs:",
-    storedCredentials.shoonya
-  );
-  res.json({
-    message: "Shoonya credentials and security IDs updated successfully",
-  });
-});
-// Endpoint to set Dhan credentials
-app.post("/api/set-dhan-credentials", (req, res) => {
-  console.log("Received POST request to set Dhan credentials");
-  const { accessToken, clientId, dhanExchangeSegment, dhanSecurityId } = req.body;
-
-  // Store the Dhan credentials
-  storedCredentials.dhan = {
-    accessToken,
-    clientId,
-    dhanExchangeSegment, // Store as string
-    dhanSecurityId,      // Store as string
-  };
-
-  console.log("Stored Dhan credentials:", storedCredentials.dhan);
-  res.json({ message: "Dhan credentials updated successfully" });
+app.get("/api/get-credentials", (req, res) => {
+  const { broker } = req.query;
+  res.json(storedCredentials[broker]);
 });
 
 // Update the GET endpoint to use the stored credentials and security IDs
@@ -120,10 +75,10 @@ app.get("/flattrade-websocket-data", (req, res) => {
 
   // Use the stored credentials and security IDs
   const websocketData = {
-    usersession: storedCredentials.usersession,
-    userid: storedCredentials.userid,
-    defaultCallSecurityId: storedCredentials.defaultCallSecurityId,
-    defaultPutSecurityId: storedCredentials.defaultPutSecurityId,
+    usersession: storedCredentials.flattrade.usersession,
+    userid: storedCredentials.flattrade.userid,
+    defaultCallSecurityId: storedCredentials.flattrade.defaultCallSecurityId,
+    defaultPutSecurityId: storedCredentials.flattrade.defaultPutSecurityId,
   };
 
   console.log("Sending websocket data:", websocketData);
@@ -153,8 +108,8 @@ app.get("/dhan-websocket-data", (req, res) => {
   const websocketData = {
     accessToken: storedCredentials.dhan.accessToken,
     clientId: storedCredentials.dhan.clientId,
-    exchangeSegment: storedCredentials.dhan.dhanExchangeSegment, // Ensure this is set
-    securityId: storedCredentials.dhan.dhanSecurityId, // Ensure this is set
+    exchangeSegment: storedCredentials.dhan.dhanExchangeSegment,
+    securityId: storedCredentials.dhan.dhanSecurityId,
   };
 
   console.log("Sending websocket data:", websocketData);
@@ -174,38 +129,31 @@ app.use(
   })
 );
 // Broker Flattrade - Get Funds
+const handleError = (res, error, message) => {
+  console.error(message, error);
+  res.status(500).json({ message, error: error.message });
+};
+
 app.post("/flattradeFundLimit", async (req, res) => {
   const jKey = req.query.FLATTRADE_API_TOKEN;
   const clientId = req.query.FLATTRADE_CLIENT_ID;
 
   if (!jKey || !clientId) {
-    return res
-      .status(400)
-      .json({ message: "API token or Client ID is missing." });
+    return res.status(400).json({ message: "API token or Client ID is missing." });
   }
 
-  const jData = JSON.stringify({
-    uid: clientId,
-    actid: clientId,
-  });
+  const jData = JSON.stringify({ uid: clientId, actid: clientId });
   const payload = `jKey=${jKey}&jData=${jData}`;
 
   try {
     const response = await axios.post(
       "https://piconnect.flattrade.in/PiConnectTP/Limits",
       payload,
-      {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-      }
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
     );
     res.json(response.data);
   } catch (error) {
-    console.error("Error fetching fund limits:", error);
-    res
-      .status(500)
-      .json({ message: "Error fetching fund limits", error: error.message });
+    handleError(res, error, "Error fetching fund limits");
   }
 });
 // Broker Flattrade - Route to place an order to include securityId from the request
@@ -405,7 +353,34 @@ app.post("/flattradeCancelOrder", async (req, res) => {
       .json({ message: "Error cancelling order", error: error.message });
   }
 });
+// Broker Flattrade - Route to modify an order
+app.post("/flattradeModifyOrder", async (req, res) => {
+  const { norenordno, uid, exch, prc, prctyp, qty, tsym, ret, trgprc } = req.body;
+  const jKey = req.headers['flattrade_api_token'];
 
+  if (!jKey) {
+    return res.status(400).json({ message: "Flattrade API token is missing." });
+  }
+
+  const jData = JSON.stringify({ norenordno, uid, exch, prc, prctyp, qty, tsym, ret, trgprc });
+  const payload = `jKey=${jKey}&jData=${jData}`;
+
+  try {
+    const response = await axios.post(
+      "https://piconnect.flattrade.in/PiConnectTP/ModifyOrder",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    console.error("Error modifying Flattrade order:", error);
+    res.status(500).json({ message: "Error modifying Flattrade order", error: error.message });
+  }
+});
 // All Shoonya API Endpoints
 // Broker Shoonya - Proxy configuration for Shoonya API
 app.use(
@@ -678,7 +653,34 @@ app.post("/shoonyaCancelOrder", async (req, res) => {
       .json({ message: "Error cancelling order", error: error.message });
   }
 });
+// Broker Shoonya - Route to modify an order
+app.post("/shoonyaModifyOrder", async (req, res) => {
+  const { norenordno, uid, exch, prc, prctyp, qty, tsym, ret, trgprc } = req.body;
+  const jKey = req.headers['shoonya_api_token'];
 
+  if (!jKey) {
+    return res.status(400).json({ message: "Shoonya API token is missing." });
+  }
+
+  const jData = JSON.stringify({ norenordno, uid, exch, prc, prctyp, qty, tsym, ret, trgprc });
+  const payload = `jKey=${jKey}&jData=${jData}`;
+
+  try {
+    const response = await axios.post(
+      "https://api.shoonya.com/NorenWClientTP/ModifyOrder",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    console.error("Error modifying Shoonya order:", error);
+    res.status(500).json({ message: "Error modifying Shoonya order", error: error.message });
+  }
+});
 // All Dhan API Endpoints
 // Send Dhan API credentials
 app.get("/api/dhan-credentials", (req, res) => {
@@ -936,7 +938,46 @@ app.delete("/dhanCancelOrder", async (req, res) => {
     res.status(500).json({ message: "Failed to cancel order" });
   }
 });
+// Broker Dhan - Route to modify an order
+app.put("/dhanModifyOrder", async (req, res) => {
+  const { orderId, orderType, quantity, price, triggerPrice, validity } = req.body;
+  const dhanApiToken = req.headers['dhan_api_token'];
+  const dhanClientId = storedCredentials.dhan.clientId; // Assuming you store this when setting credentials
 
+  if (!dhanApiToken) {
+    return res.status(400).json({ message: "Dhan API token is missing." });
+  }
+
+  if (!orderId || !dhanClientId) {
+    return res.status(400).json({ message: "orderId and dhanClientId are required." });
+  }
+
+  const options = {
+    method: 'PUT',
+    url: 'https://api.dhan.co/orders/{order-id}',
+    headers: {
+      'access-token': '',
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    data: {
+      dhanClientId,
+      orderType,
+      quantity,
+      price,
+      triggerPrice,
+      validity
+    }
+  };
+
+  try {
+    const { data } = await axios.request(options);
+    res.json(data);
+  } catch (error) {
+    console.error("Failed to modify Dhan order:", error);
+    res.status(500).json({ message: "Failed to modify Dhan order", error: error.message });
+  }
+});
 // Root route to prevent "Cannot GET /" error
 app.get("/", (req, res) => {
   res.send("Welcome to the Proxy Server");

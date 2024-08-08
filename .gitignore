@@ -33,3 +33,10 @@ coverage
 
 !*.csv
 !*.zip
+BFO_symbols.txt.zip
+NFO_symbols.txt.zip
+Nfo_Index_Derivatives.csv
+Bfo_Index_Derivatives.csv
+api-scrip-master.csv
+NFO_symbols.txt
+BFO_symbols.txt
