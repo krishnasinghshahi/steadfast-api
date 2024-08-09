@@ -3,9 +3,16 @@ const cors = require("cors");
 const { createProxyMiddleware } = require("http-proxy-middleware");
 const axios = require("axios");
 const bodyParser = require("body-parser");
+const fs = require("fs");
+const csv = require("fast-csv");
+const NodeCache = require("node-cache");
+const { parse, isBefore } = require("date-fns");
+const path = require("path");
+const unzipper = require("unzipper");
 require("dotenv").config();
 
 const app = express();
+const cache = new NodeCache({ stdTTL: 300 }); // Cache for 5 minutes
 
 // Debugging middleware
 app.use((req, res, next) => {
@@ -23,7 +30,7 @@ app.use(
 
 app.use(express.json());
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true })); 
+app.use(bodyParser.urlencoded({ extended: true }));
 
 require("dotenv").config();
 
@@ -52,21 +59,63 @@ let storedCredentials = {
     dhanSecurityId: "",
   },
 };
+// Update the POST endpoint to store the credentials and security IDs
+app.post("/api/set-flattrade-credentials", (req, res) => {
+  console.log("Received POST request to set credentials and security IDs");
+  const { usersession, userid, defaultCallSecurityId, defaultPutSecurityId } =
+    req.body;
 
-const setCredentials = (broker, credentials) => {
-  storedCredentials[broker] = credentials;
-  console.log(`Updated ${broker} credentials:`, storedCredentials[broker]);
-};
+  // Store the credentials and security IDs
+  storedCredentials = {
+    usersession,
+    userid,
+    defaultCallSecurityId,
+    defaultPutSecurityId,
+  };
 
-app.post("/api/set-credentials", (req, res) => {
-  const { broker, credentials } = req.body;
-  setCredentials(broker, credentials);
-  res.json({ message: `${broker} credentials updated successfully` });
+  console.log("Updated credentials and security IDs:", storedCredentials);
+  res.json({ message: "Credentials and security IDs updated successfully" });
 });
+// Add a new POST endpoint to set Shoonya credentials
+app.post("/api/set-shoonya-credentials", (req, res) => {
+  console.log(
+    "Received POST request to set Shoonya credentials and security IDs"
+  );
+  const { usersession, userid, defaultCallSecurityId, defaultPutSecurityId } =
+    req.body;
 
-app.get("/api/get-credentials", (req, res) => {
-  const { broker } = req.query;
-  res.json(storedCredentials[broker]);
+  // Store the Shoonya credentials and security IDs
+  storedCredentials.shoonya = {
+    usersession,
+    userid,
+    defaultCallSecurityId,
+    defaultPutSecurityId,
+  };
+
+  console.log(
+    "Updated Shoonya credentials and security IDs:",
+    storedCredentials.shoonya
+  );
+  res.json({
+    message: "Shoonya credentials and security IDs updated successfully",
+  });
+});
+// Endpoint to set Dhan credentials
+app.post("/api/set-dhan-credentials", (req, res) => {
+  console.log("Received POST request to set Dhan credentials");
+  const { accessToken, clientId, dhanExchangeSegment, dhanSecurityId } = req.body;
+
+  // Store the Dhan credentials
+  storedCredentials.dhan = {
+    accessToken,
+    clientId,
+    dhanExchangeSegment,
+    dhanSecurityId,
+  };
+
+  console.log("Stored Dhan credentials:", storedCredentials.dhan);
+  res.json({ message: "Dhan credentials updated successfully" });
+
 });
 
 // Update the GET endpoint to use the stored credentials and security IDs
@@ -75,10 +124,10 @@ app.get("/flattrade-websocket-data", (req, res) => {
 
   // Use the stored credentials and security IDs
   const websocketData = {
-    usersession: storedCredentials.flattrade.usersession,
-    userid: storedCredentials.flattrade.userid,
-    defaultCallSecurityId: storedCredentials.flattrade.defaultCallSecurityId,
-    defaultPutSecurityId: storedCredentials.flattrade.defaultPutSecurityId,
+    usersession: storedCredentials.usersession,
+    userid: storedCredentials.userid,
+    defaultCallSecurityId: storedCredentials.defaultCallSecurityId,
+    defaultPutSecurityId: storedCredentials.defaultPutSecurityId,
   };
 
   console.log("Sending websocket data:", websocketData);
@@ -129,11 +178,6 @@ app.use(
   })
 );
 // Broker Flattrade - Get Funds
-const handleError = (res, error, message) => {
-  console.error(message, error);
-  res.status(500).json({ message, error: error.message });
-};
-
 app.post("/flattradeFundLimit", async (req, res) => {
   const jKey = req.query.FLATTRADE_API_TOKEN;
   const clientId = req.query.FLATTRADE_CLIENT_ID;
@@ -141,8 +185,8 @@ app.post("/flattradeFundLimit", async (req, res) => {
   if (!jKey || !clientId) {
     return res.status(400).json({ message: "API token or Client ID is missing." });
   }
-
   const jData = JSON.stringify({ uid: clientId, actid: clientId });
+
   const payload = `jKey=${jKey}&jData=${jData}`;
 
   try {
@@ -257,11 +301,16 @@ app.get("/flattradeSymbols", (req, res) => {
           return dateA - dateB;
         });
 
-      res.json({
+      const responseData = {
         callStrikes,
         putStrikes,
         expiryDates: sortedExpiryDates, // Send the sorted expiry dates
-      });
+      };
+
+      // Store the data in the cache
+      cache.set(cacheKey, responseData);
+
+      res.json(responseData);
     })
     .on("error", (error) => {
       console.error("Error processing CSV file:", error); // Log any errors
@@ -381,6 +430,7 @@ app.post("/flattradeModifyOrder", async (req, res) => {
     res.status(500).json({ message: "Error modifying Flattrade order", error: error.message });
   }
 });
+
 // All Shoonya API Endpoints
 // Broker Shoonya - Proxy configuration for Shoonya API
 app.use(
@@ -393,6 +443,7 @@ app.use(
     },
   })
 );
+
 // Broker Shoonya - Get Funds
 app.post("/shoonyaFundLimit", async (req, res) => {
   const jKey = req.query.SHOONYA_API_TOKEN;
@@ -427,6 +478,7 @@ app.post("/shoonyaFundLimit", async (req, res) => {
       .json({ message: "Error fetching fund limits", error: error.message });
   }
 });
+
 // Broker Shoonya - Get Symbols
 app.get("/shoonyaSymbols", (req, res) => {
   const bfoSymbolMapping = {
@@ -436,6 +488,14 @@ app.get("/shoonyaSymbols", (req, res) => {
   };
 
   const { exchangeSymbol, masterSymbol } = req.query;
+  const cacheKey = `${exchangeSymbol}-${masterSymbol}`;
+
+  // Check if the data is in the cache
+  const cachedData = cache.get(cacheKey);
+  if (cachedData) {
+    return res.json(cachedData);
+  }
+
   const callStrikes = [];
   const putStrikes = [];
   const expiryDates = new Set();
@@ -503,23 +563,27 @@ app.get("/shoonyaSymbols", (req, res) => {
                 return dateA - dateB;
               });
 
-            res.json({
+            const responseData = {
               callStrikes,
               putStrikes,
               expiryDates: sortedExpiryDates,
-            });
+            };
+
+            // Store the data in the cache
+            cache.set(cacheKey, responseData);
+
+            res.json(responseData);
           });
       } else {
         entry.autodrain();
       }
     })
     .on("error", (error) => {
-      console.error(`Error processing zip file ${zipFilePath}:`, error);
-      res
-        .status(500)
-        .json({ message: "Failed to process zip file", error: error.message });
+      console.error("Error processing ZIP file:", error); // Log any errors
+      res.status(500).json({ message: "Failed to process ZIP file" });
     });
 });
+
 // Broker Shoonya - Route to place an order to include securityId from the request
 app.post("/shoonyaPlaceOrder", async (req, res) => {
   const { uid, actid, exch, tsym, qty, prc, trgprc, prd, trantype, prctyp, ret } =
@@ -681,14 +745,16 @@ app.post("/shoonyaModifyOrder", async (req, res) => {
     res.status(500).json({ message: "Error modifying Shoonya order", error: error.message });
   }
 });
+
 // All Dhan API Endpoints
 // Send Dhan API credentials
 app.get("/api/dhan-credentials", (req, res) => {
   res.json({
-    apiToken: DHAN_ACCESS_TOKEN,
-    clientId: DHAN_CLIENT_ID,
+    apiToken: storedCredentials.dhan.accessToken,
+    clientId: storedCredentials.dhan.clientId,
   });
 });
+
 // Broker Dhan - Proxy configuration for Dhan API
 app.use(
   "/api",
@@ -741,6 +807,14 @@ app.get("/dhanFundLimit", async (req, res) => {
 // Broker Dhan - Get Symbols
 app.get("/dhanSymbols", (req, res) => {
   const { exchangeSymbol, masterSymbol } = req.query;
+  const cacheKey = `dhan-${exchangeSymbol}-${masterSymbol}`;
+
+  // Check if the data is in the cache
+  const cachedData = cache.get(cacheKey);
+  if (cachedData) {
+    return res.json(cachedData);
+  }
+
   const callStrikes = [];
   const putStrikes = [];
   const expiryDates = new Set();
@@ -784,13 +858,19 @@ app.get("/dhanSymbols", (req, res) => {
           return dateA - dateB;
         });
 
-      res.json({
+      const responseData = {
         callStrikes,
         putStrikes,
         expiryDates: sortedExpiryDates,
-      });
+      };
+
+      // Store the data in the cache
+      cache.set(cacheKey, responseData);
+
+      res.json(responseData);
     })
     .on("error", (error) => {
+      console.error("Error processing CSV file:", error); // Log any errors
       res.status(500).json({ message: "Failed to process CSV file" });
     });
 });
@@ -938,6 +1018,7 @@ app.delete("/dhanCancelOrder", async (req, res) => {
     res.status(500).json({ message: "Failed to cancel order" });
   }
 });
+
 // Broker Dhan - Route to modify an order
 app.put("/dhanModifyOrder", async (req, res) => {
   const { orderId, orderType, quantity, price, triggerPrice, validity } = req.body;
@@ -954,9 +1035,9 @@ app.put("/dhanModifyOrder", async (req, res) => {
 
   const options = {
     method: 'PUT',
-    url: 'https://api.dhan.co/orders/{order-id}',
+    url: `https://api.dhan.co/orders/${orderId}`,
     headers: {
-      'access-token': '',
+      'access-token': dhanApiToken,
       'Content-Type': 'application/json',
       Accept: 'application/json'
     },
@@ -978,10 +1059,12 @@ app.put("/dhanModifyOrder", async (req, res) => {
     res.status(500).json({ message: "Failed to modify Dhan order", error: error.message });
   }
 });
+
 // Root route to prevent "Cannot GET /" error
 app.get("/", (req, res) => {
   res.send("Welcome to the Proxy Server");
 });
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
