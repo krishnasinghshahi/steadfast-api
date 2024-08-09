@@ -252,9 +252,17 @@ app.post("/flattradePlaceOrder", async (req, res) => {
       .json({ message: "Error placing order", error: error.message });
   }
 });
-// Broker Flattrade - Get Symbols
 app.get("/flattradeSymbols", (req, res) => {
   const { exchangeSymbol, masterSymbol } = req.query;
+  const cacheKey = `${exchangeSymbol}-${masterSymbol}`; // Add this line
+
+  // Check if the data is in the cache
+  const cachedData = cache.get(cacheKey);
+  if (cachedData) {
+    return res.json(cachedData);
+  }
+
+
   const callStrikes = [];
   const putStrikes = [];
   const expiryDates = new Set();
@@ -409,7 +417,7 @@ app.post("/flattradeCancelOrder", async (req, res) => {
 // Broker Flattrade - Route to modify an order
 app.post("/flattradeModifyOrder", async (req, res) => {
   const { norenordno, uid, exch, prc, prctyp, qty, tsym, ret, trgprc } = req.body;
-  const jKey = req.headers['flattrade_api_token'];
+  const jKey = req.query.FLATTRADE_API_TOKEN;
 
   if (!jKey) {
     return res.status(400).json({ message: "Flattrade API token is missing." });
@@ -724,7 +732,7 @@ app.post("/shoonyaCancelOrder", async (req, res) => {
 // Broker Shoonya - Route to modify an order
 app.post("/shoonyaModifyOrder", async (req, res) => {
   const { norenordno, uid, exch, prc, prctyp, qty, tsym, ret, trgprc } = req.body;
-  const jKey = req.headers['shoonya_api_token'];
+  const jKey = req.query.SHOONYA_API_TOKEN;
 
   if (!jKey) {
     return res.status(400).json({ message: "Shoonya API token is missing." });
@@ -1024,10 +1032,10 @@ app.delete("/dhanCancelOrder", async (req, res) => {
 });
 
 // Broker Dhan - Route to modify an order
-app.put("/dhanModifyOrder", async (req, res) => {
-  const { orderId, orderType, quantity, price, triggerPrice, validity } = req.body;
-  const dhanApiToken = req.headers['dhan_api_token'];
-  const dhanClientId = storedCredentials.dhan.clientId; // Assuming you store this when setting credentials
+app.put("/dhanModifyOrder/:orderId", async (req, res) => {
+  const { orderId } = req.params;
+  const { dhanClientId, orderType, quantity, price, triggerPrice, validity } = req.body;
+  const dhanApiToken = req.headers['access-token'];
 
   if (!dhanApiToken) {
     return res.status(400).json({ message: "Dhan API token is missing." });
@@ -1043,15 +1051,16 @@ app.put("/dhanModifyOrder", async (req, res) => {
     headers: {
       'access-token': dhanApiToken,
       'Content-Type': 'application/json',
-      Accept: 'application/json'
+      'Accept': 'application/json'
     },
     data: {
       dhanClientId,
+      orderId,
       orderType,
       quantity,
       price,
       triggerPrice,
-      validity
+      validity: 'DAY'
     }
   };
 
@@ -1063,7 +1072,6 @@ app.put("/dhanModifyOrder", async (req, res) => {
     res.status(500).json({ message: "Failed to modify Dhan order", error: error.message });
   }
 });
-
 // Root route to prevent "Cannot GET /" error
 app.get("/", (req, res) => {
   res.send("Welcome to the Proxy Server");
