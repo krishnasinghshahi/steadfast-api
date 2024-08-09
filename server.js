@@ -177,6 +177,10 @@ app.use(
     },
   })
 );
+const handleError = (res, error, message) => {
+  console.error(message, error);
+  res.status(500).json({ message, error: error.message });
+};
 // Broker Flattrade - Get Funds
 app.post("/flattradeFundLimit", async (req, res) => {
   const jKey = req.query.FLATTRADE_API_TOKEN;
